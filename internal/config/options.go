@@ -19,3 +19,9 @@ func WithSQLitePath(path string) ConfigOption {
 		c.SQLitePath = path
 	}
 }
+
+func WithShellKind(kind ShellKind) ConfigOption {
+	return func(c *Config) {
+		c.kind = kind
+	}
+}

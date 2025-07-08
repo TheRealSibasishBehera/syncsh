@@ -5,11 +5,47 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/TheRealSibasishBehera/syncsh/pkg/utils"
 	"github.com/goccy/go-yaml"
 )
 
+type ShellKind string
+
+const (
+	ShellBash ShellKind = "bash"
+	ShellZsh  ShellKind = "zsh"
+	ShellFish ShellKind = "fish"
+)
+
+// GetDefaultHistoryPath returns the default history path for each shell
+func (s ShellKind) GetDefaultHistoryPath() string {
+	home := os.Getenv("HOME")
+	if home == "" {
+		return ""
+	}
+
+	switch s {
+	case ShellBash:
+		return filepath.Join(home, ".bash_history")
+	case ShellZsh:
+		if histFile := os.Getenv("HISTFILE"); histFile != "" {
+			return histFile
+		}
+		return filepath.Join(home, ".zsh_history")
+	case ShellFish:
+		return filepath.Join(home, ".local", "share", "fish", "fish_history")
+	default:
+		return ""
+	}
+}
+
 type Config struct {
-	SQLitePath string `yaml:"sql_path"` // path to the SQLite database file
+	SQLitePath string    `yaml:"sql_path"` // path to the SQLite database file
+	kind       ShellKind `yaml:"shell"`    // kind of shell to use, e.g., ["bash", "zsh"]
+
+	// WireGuard keys
+	PrivateKey string `yaml:"private_key"` // WireGuard private key (base64)
+	PublicKey  string `yaml:"public_key"`  // WireGuard public key (base64)
 
 	//optional path
 	HistoryPath   string `yaml:"history"`   // path for the history file
@@ -19,23 +55,52 @@ type Config struct {
 	path string // config is read from this path
 }
 
-func NewConfig(opts ...ConfigOption) *Config {
-	//set default values first
-	cfg := &Config{
-		SQLitePath:    "syncsh.db",
-		HistoryPath:   "",
-		InterfaceName: "syncsh0",
-	}
+func NewConfigWithOpts(opts ...ConfigOption) (*Config, error) {
+	cfg := &Config{}
 
 	for _, opt := range opts {
 		opt(cfg)
 	}
 
-	return cfg
+	if cfg.SQLitePath == "" {
+		cfg.SQLitePath = "store/syncsh.db"
+	}
+	if cfg.InterfaceName == "" {
+		cfg.InterfaceName = "syncsh0"
+	}
+	if cfg.kind == "" {
+		shellKind, err := utils.GetShellKind()
+		if err != nil {
+			return nil, err
+		}
+		cfg.kind = ShellKind(shellKind)
+	}
+	if cfg.HistoryPath == "" {
+		historyPath, err := utils.GetDefaultHistoryPath(string(cfg.kind))
+		if err != nil {
+			return nil, err
+		}
+		cfg.HistoryPath = historyPath
+	}
+
+	return cfg, nil
 }
 
 func (c *Config) Path() string {
 	return c.path
+}
+
+// SetPath sets the config file path
+func (c *Config) SetPath(path string) {
+	c.path = path
+}
+
+// GetResolvedHistoryPath returns the history path, using default if not set
+func (c *Config) GetResolvedHistoryPath() string {
+	if c.HistoryPath != "" {
+		return c.HistoryPath
+	}
+	return c.kind.GetDefaultHistoryPath()
 }
 
 func NewFromFile(path string) (*Config, error) {
